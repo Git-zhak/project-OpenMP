@@ -16,10 +16,8 @@ struct Pixel {
 
 // Tarea A: Generar el Conjunto de Mandelbrot
 void generarMandelbrot(std::vector<Pixel>& imagen) {
-    // Usamos schedule(dynamic) porque el cálculo del Mandelbrot está desbalanceado.
-    // Los píxeles dentro del conjunto tardan mucho más (500 iteraciones) que los de afuera.
-    // 'dynamic' reparte el trabajo sobre la marcha a los hilos desocupados.
-    #pragma omp parallel for schedule(dynamic)
+    // Cambiamos a schedule(runtime) para controlarlo desde la terminal
+    #pragma omp parallel for schedule(runtime)
     for (int y = 0; y < HEIGHT; ++y) {
         for (int x = 0; x < WIDTH; ++x) {
             double cr = -2.0 + (x * 3.0 / WIDTH);
