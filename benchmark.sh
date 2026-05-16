@@ -13,6 +13,6 @@ for conf in "${configs[@]}"; do
     echo "Prueba con OMP_SCHEDULE=$conf"
     
     # Ejecutamos el programa, pero filtramos la salida para ver solo la Tarea A
-    ./fractal_omp | grep "Tarea A"
+    ./project | grep "Tarea A"
     echo "---"
 done
