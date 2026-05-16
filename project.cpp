@@ -2,7 +2,7 @@
 #include <vector>
 #include <fstream>
 #include <cmath>
-#include <chrono>
+#include <omp.h> // Librería principal de OpenMP
 
 // Resolución 8K UHD (7680 x 4320)
 const int WIDTH = 7680;
@@ -16,9 +16,12 @@ struct Pixel {
 
 // Tarea A: Generar el Conjunto de Mandelbrot
 void generarMandelbrot(std::vector<Pixel>& imagen) {
+    // Usamos schedule(dynamic) porque el cálculo del Mandelbrot está desbalanceado.
+    // Los píxeles dentro del conjunto tardan mucho más (500 iteraciones) que los de afuera.
+    // 'dynamic' reparte el trabajo sobre la marcha a los hilos desocupados.
+    #pragma omp parallel for schedule(dynamic)
     for (int y = 0; y < HEIGHT; ++y) {
         for (int x = 0; x < WIDTH; ++x) {
-            // Mapear los píxeles a las coordenadas del plano complejo (-2.0 a 1.0, -1.2 a 1.2)
             double cr = -2.0 + (x * 3.0 / WIDTH);
             double ci = -1.2 + (y * 2.4 / HEIGHT);
 
@@ -32,12 +35,10 @@ void generarMandelbrot(std::vector<Pixel>& imagen) {
                 ++iter;
             }
 
-            // Coloreado simple basado en las iteraciones
             int idx = y * WIDTH + x;
             if (iter == MAX_ITER) {
-                imagen[idx] = {0, 0, 0}; // Dentro del conjunto (Negro)
+                imagen[idx] = {0, 0, 0};
             } else {
-                // Paleta de colores básica (escala de azules/verdes)
                 unsigned char c = static_cast<unsigned char>(255 * iter / MAX_ITER);
                 imagen[idx] = {static_cast<unsigned char>(c * 3), static_cast<unsigned char>(c * 5), static_cast<unsigned char>(c * 8)};
             }
@@ -47,7 +48,6 @@ void generarMandelbrot(std::vector<Pixel>& imagen) {
 
 // Tarea B: Aplicar un filtro de convolución 2D (Desenfoque Gaussiano 5x5 pesado)
 void aplicarFiltroGaussiano(const std::vector<Pixel>& origen, std::vector<Pixel>& destino) {
-    // Kernel Gaussiano 5x5 con desviación estándar sigma = 1.0
     const int K_SIZE = 5;
     const double kernel[5][5] = {
         {1/273.0,  4/273.0,  7/273.0,  4/273.0, 1/273.0},
@@ -59,14 +59,16 @@ void aplicarFiltroGaussiano(const std::vector<Pixel>& origen, std::vector<Pixel>
 
     int r_offset = K_SIZE / 2;
 
+    // Usamos schedule(static) porque el filtro aplica exactamente la misma 
+    // cantidad de operaciones matemáticas (25) a cada píxel. 
+    // 'static' divide el trabajo en bloques iguales de antemano, reduciendo el overhead.
+    #pragma omp parallel for schedule(static)
     for (int y = 0; y < HEIGHT; ++y) {
         for (int x = 0; x < WIDTH; ++x) {
             double red_sum = 0.0, green_sum = 0.0, blue_sum = 0.0;
 
-            // Convolución para cada píxel
             for (int ky = 0; ky < K_SIZE; ++ky) {
                 for (int kx = 0; kx < K_SIZE; ++kx) {
-                    // Manejo de bordes (clamping)
                     int px = std::min(std::max(x + (kx - r_offset), 0), WIDTH - 1);
                     int py = std::min(std::max(y + (ky - r_offset), 0), HEIGHT - 1);
 
@@ -87,46 +89,42 @@ void aplicarFiltroGaussiano(const std::vector<Pixel>& origen, std::vector<Pixel>
     }
 }
 
-// Función auxiliar para guardar la imagen en formato PPM (P6 - Binario)
+// Función auxiliar para guardar la imagen en formato PPM
 void guardarImagenPPM(const std::string& nombreArchivo, const std::vector<Pixel>& imagen) {
     std::ofstream archivo(nombreArchivo, std::ios::out | std::ios::binary);
     if (!archivo) {
         std::cerr << "Error al abrir el archivo para escribir." << std::endl;
         return;
     }
-    // Cabecera del formato PPM
     archivo << "P6\n" << WIDTH << " " << HEIGHT << "\n255\n";
     archivo.write(reinterpret_cast<const char*>(imagen.data()), imagen.size() * sizeof(Pixel));
     archivo.close();
 }
 
 int main() {
-    std::cout << "Iniciando procesamiento secuencial (Resolucion 8K)..." << std::endl;
+    // omp_get_max_threads() nos dice cuántos hilos están disponibles en el sistema
+    std::cout << "Iniciando procesamiento paralelo con " << omp_get_max_threads() << " hilos (Resolucion 8K)..." << std::endl;
 
-    // Reservar memoria para las imágenes
     std::vector<Pixel> imagenOriginal(WIDTH * HEIGHT);
     std::vector<Pixel> imagenFiltrada(WIDTH * HEIGHT);
 
     // --- Ejecución Tarea A ---
-    auto startA = std::chrono::high_resolution_clock::now();
+    double startA = omp_get_wtime();
     generarMandelbrot(imagenOriginal);
-    auto endA = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> tiempoA = endA - startA;
-    std::cout << "Tarea A (Mandelbrot) completada en: " << tiempoA.count() << " segundos." << std::endl;
+    double endA = omp_get_wtime();
+    std::cout << "Tarea A (Mandelbrot) completada en: " << (endA - startA) << " segundos." << std::endl;
 
     // --- Ejecución Tarea B ---
-    auto startB = std::chrono::high_resolution_clock::now();
+    double startB = omp_get_wtime();
     aplicarFiltroGaussiano(imagenOriginal, imagenFiltrada);
-    auto endB = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> tiempoB = endB - startB;
-    std::cout << "Tarea B (Filtro Gaussiano) completada en: " << tiempoB.count() << " segundos." << std::endl;
+    double endB = omp_get_wtime();
+    std::cout << "Tarea B (Filtro Gaussiano) completada en: " << (endB - startB) << " segundos." << std::endl;
 
-    std::cout << "Tiempo total de computo: " << (tiempoA.count() + tiempoB.count()) << " segundos." << std::endl;
+    std::cout << "Tiempo total de computo: " << ((endA - startA) + (endB - startB)) << " segundos." << std::endl;
 
-    // Guardar los resultados en el disco de la MV
     std::cout << "Guardando imagenes en disco..." << std::endl;
-    guardarImagenPPM("mandelbrot_8k.ppm", imagenOriginal);
-    guardarImagenPPM("mandelbrot_8k_blurred.ppm", imagenFiltrada);
+    guardarImagenPPM("mandelbrot_8k_omp.ppm", imagenOriginal);
+    guardarImagenPPM("mandelbrot_8k_omp_blurred.ppm", imagenFiltrada);
     std::cout << "¡Proceso finalizado con exito!" << std::endl;
 
     return 0;
