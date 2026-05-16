@@ -16,8 +16,8 @@ struct Pixel {
 
 // Tarea A: Generar el Conjunto de Mandelbrot
 void generarMandelbrot(std::vector<Pixel>& imagen) {
-    // Cambiamos a schedule(runtime) para controlarlo desde la terminal
-    #pragma omp parallel for schedule(runtime)
+    // Usamos dynamic con chunk de 64 según el perfilado empírico
+    #pragma omp parallel for schedule(dynamic, 64)
     for (int y = 0; y < HEIGHT; ++y) {
         for (int x = 0; x < WIDTH; ++x) {
             double cr = -2.0 + (x * 3.0 / WIDTH);
