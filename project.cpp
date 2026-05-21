@@ -57,11 +57,12 @@ void aplicarFiltroGaussiano(const std::vector<Pixel>& origen, std::vector<Pixel>
 
     int r_offset = K_SIZE / 2;
 
-    // Usamos schedule(static) porque el filtro aplica exactamente la misma 
-    // cantidad de operaciones matemáticas (25) a cada píxel. 
-    // 'static' divide el trabajo en bloques iguales de antemano, reduciendo el overhead.
+    // OpenMP reparte las filas Y entre los hilos
     #pragma omp parallel for schedule(static)
     for (int y = 0; y < HEIGHT; ++y) {
+        
+        // forzamos a que cada hilo use vectorización (SIMD) en las columnas X
+        #pragma omp simd
         for (int x = 0; x < WIDTH; ++x) {
             double red_sum = 0.0, green_sum = 0.0, blue_sum = 0.0;
 
