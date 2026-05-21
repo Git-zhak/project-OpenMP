@@ -99,6 +99,42 @@ void guardarImagenPPM(const std::string& nombreArchivo, const std::vector<Pixel>
     archivo.close();
 }
 
+// HISTOGRAMA
+// sincronización con mutual exclusion (Atomic)
+void calcularHistogramaAtomic(const std::vector<Pixel>& imagen, std::vector<int>& histograma) {
+    std::fill(histograma.begin(), histograma.end(), 0);
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < imagen.size(); ++i) {
+        // Calcular promedio para escala de grises (0-255)
+        int gris = (imagen[i].r + imagen[i].g + imagen[i].b) / 3;
+        
+        // Para exclusión mutua
+        #pragma omp atomic
+        histograma[gris]++;
+    }
+}
+
+// Variables locales y Reduction
+void calcularHistogramaReduction(const std::vector<Pixel>& imagen, std::vector<int>& histograma) {
+    std::fill(histograma.begin(), histograma.end(), 0);
+    
+    // para facilitar la sintaxis de reduction en OpenMP
+    int hist_local[256] = {0};
+
+    // Esto crea copias privadas del arreglo para cada hilo de forma automática
+    #pragma omp parallel for reduction(+:hist_local[:256])
+    for (size_t i = 0; i < imagen.size(); ++i) {
+        int gris = (imagen[i].r + imagen[i].g + imagen[i].b) / 3;
+        hist_local[gris]++; // Cero contención, cero bloqueos
+    }
+
+    // Copiamos el resultado al vector final
+    for (int i = 0; i < 256; ++i) {
+        histograma[i] = hist_local[i];
+    }
+}
+
 int main() {
     // omp_get_max_threads() nos dice cuántos hilos están disponibles en el sistema
     std::cout << "Iniciando procesamiento paralelo con " << omp_get_max_threads() << " hilos (Resolucion 8K)..." << std::endl;
@@ -106,19 +142,35 @@ int main() {
     std::vector<Pixel> imagenOriginal(WIDTH * HEIGHT);
     std::vector<Pixel> imagenFiltrada(WIDTH * HEIGHT);
 
-    // --- Ejecución Tarea A ---
+    // Ejecución Tarea A
     double startA = omp_get_wtime();
     generarMandelbrot(imagenOriginal);
     double endA = omp_get_wtime();
     std::cout << "Tarea A (Mandelbrot) completada en: " << (endA - startA) << " segundos." << std::endl;
 
-    // --- Ejecución Tarea B ---
+    // Ejecución Tarea B
     double startB = omp_get_wtime();
     aplicarFiltroGaussiano(imagenOriginal, imagenFiltrada);
     double endB = omp_get_wtime();
     std::cout << "Tarea B (Filtro Gaussiano) completada en: " << (endB - startB) << " segundos." << std::endl;
 
     std::cout << "Tiempo total de computo: " << ((endA - startA) + (endB - startB)) << " segundos." << std::endl;
+
+    std::cout << "\n---Iniciando Histograma" << std::endl;
+    std::vector<int> histAtomic(256);
+    std::vector<int> histReduction(256);
+
+    // Prueba con Atomic
+    double startC1 = omp_get_wtime();
+    calcularHistogramaAtomic(imagenFiltrada, histAtomic);
+    double endC1 = omp_get_wtime();
+    std::cout << "Histograma (Atomic/Critical) completado en: " << (endC1 - startC1) << " segundos." << std::endl;
+
+    // Prueba con Reduction
+    double startC2 = omp_get_wtime();
+    calcularHistogramaReduction(imagenFiltrada, histReduction);
+    double endC2 = omp_get_wtime();
+    std::cout << "Histograma (Reduction/Local) completado en: " << (endC2 - startC2) << " segundos." << std::endl;
 
     std::cout << "Guardando imagenes en disco..." << std::endl;
     guardarImagenPPM("mandelbrot_8k_omp.ppm", imagenOriginal);
